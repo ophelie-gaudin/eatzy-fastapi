@@ -26,7 +26,7 @@ app.add_middleware(
 meal_plan_service = MealPlanService()
 
 
-@app.get("/health")
+@app.get("/")
 def health_check():
     return {"status": "healthy"}
 

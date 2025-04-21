@@ -5,18 +5,23 @@ from typing import Dict, List, Any
 from dotenv import load_dotenv
 import openai
 import json_repair
+import httpx
 
 load_dotenv()
 
 
 class MealPlanService:
     def __init__(self):
-        # Initialize the OpenAI client with the newer API
+        # Initialize the OpenAI client
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
-        self.client = openai.OpenAI(api_key=api_key)
+        # Create a basic httpx client without proxy settings
+        http_client = httpx.Client()
+
+        # Initialize the OpenAI client with the custom http client
+        self.client = openai.OpenAI(api_key=api_key, http_client=http_client)
         self.model = "gpt-4-turbo"  # Using gpt-4-turbo which supports response_format
 
     def generate_meal_plan(
@@ -126,7 +131,7 @@ Structure the output as follows:
 - For each day, provide details for each meal type available that day.
 - For each meal, include recipes with detailed steps and ingredients."""
 
-        # Use the newer OpenAI API format with response_format
+        # Use the OpenAI API with response_format
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -136,7 +141,6 @@ Structure the output as follows:
             temperature=0.7,
             response_format={"type": "json_object"},
         )
-
         return response.choices[0].message.content
 
     def _format_response_as_json(self, meal_plan: str) -> Dict:
@@ -194,7 +198,7 @@ Structure the output as follows:
     def _call_openai_for_json_formatting(self, json_str: str) -> str:
         prompt = self._create_json_format_prompt(json_str)
 
-        # Use the newer OpenAI API format with response_format
+        # Use the OpenAI API with response_format
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -207,7 +211,6 @@ Structure the output as follows:
             temperature=0.1,
             response_format={"type": "json_object"},
         )
-
         return response.choices[0].message.content
 
     def _create_json_format_prompt(self, json_str: str) -> str:
@@ -310,7 +313,7 @@ Return ONLY the shopping list as an array of ingredients. Each ingredient is an 
 
 DO NOT return the entire meal plan, ONLY the shopping list array."""
 
-        # Use the newer OpenAI API format with response_format
+        # Use the OpenAI API with response_format
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -320,7 +323,6 @@ DO NOT return the entire meal plan, ONLY the shopping list array."""
             temperature=0.1,
             response_format={"type": "json_object"},
         )
-
         shopping_list_json = response.choices[0].message.content
 
         # Parse the JSON response

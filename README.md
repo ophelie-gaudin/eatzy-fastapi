@@ -123,25 +123,31 @@ A FastAPI-based meal planning API that generates personalized meal plans based o
 
 ## 🚀 Deployment to Vercel
 
-1. Install Vercel CLI:
+### Setting up Environment Variables
+
+1. Log in to your Vercel account
+2. Go to your project dashboard
+3. Click on "Settings" tab
+4. Click on "Environment Variables" in the left sidebar
+5. Add the following environment variables:
+    - `OPENAI_API_KEY`: Your OpenAI API key
+6. Click "Save" to apply the changes
+
+### Deploying
+
+1. Install the Vercel CLI:
 
     ```bash
     npm install -g vercel
     ```
 
-2. Login to Vercel:
-
-    ```bash
-    vercel login
-    ```
-
-3. Deploy the application:
+2. Deploy to Vercel:
 
     ```bash
     vercel
     ```
 
-4. For production deployment:
+3. For production deployment:
     ```bash
     vercel --prod
     ```
