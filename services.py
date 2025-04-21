@@ -195,6 +195,15 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
             Please consolidate the following ingredients into a clean shopping list.
             Combine similar ingredients and sum their quantities.
             Remove any preparation details and keep only the essential information.
+            
+            IMPORTANT FORMATTING INSTRUCTIONS:
+            1. Use full words for units (e.g., "teaspoon" instead of "tsp", "tablespoon" instead of "tbsp")
+            2. Use "piece" or "pieces" for whole items (e.g., "1 piece" instead of "1 whole")
+            3. Use "gram" or "grams" for weight measurements (e.g., "200 grams" instead of "200g")
+            4. Use "milliliter" or "milliliters" for liquid measurements (e.g., "500 milliliters" instead of "500ml")
+            5. Use "cup" or "cups" for volume measurements
+            6. Use "pinch" for very small amounts
+            
             Return the result as a JSON array of ingredients with label, quantity, and unit.
             
             Ingredients:
@@ -223,20 +232,110 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
             result = json.loads(response.choices[0].message.content)
             print(f"Parsed response: {result}")
 
-            # Ensure we return a list
-            if isinstance(result, dict) and "shopping_list" in result:
-                shopping_list = result["shopping_list"]
-                print(f"Found shopping_list key with {len(shopping_list)} items")
-                return shopping_list
+            # Extract the shopping list from the response
+            shopping_list = []
+
+            # Check for different possible keys in the response
+            if isinstance(result, dict):
+                # Check for different possible keys
+                for key in ["shopping_list", "shoppingList", "shoppinglist", "list"]:
+                    if key in result and isinstance(result[key], list):
+                        shopping_list = result[key]
+                        print(
+                            f"Found shopping list with key '{key}' containing {len(shopping_list)} items"
+                        )
+                        break
+
+                # If no list found with known keys, check if any key contains a list
+                if not shopping_list:
+                    for key, value in result.items():
+                        if isinstance(value, list):
+                            shopping_list = value
+                            print(
+                                f"Found list with key '{key}' containing {len(shopping_list)} items"
+                            )
+                            break
             elif isinstance(result, list):
-                print(f"Response is already a list with {len(result)} items")
-                return result
-            else:
-                # If we can't find a list in the response, return an empty list
-                print(f"Unexpected shopping list format: {result}")
+                shopping_list = result
+                print(f"Response is already a list with {len(shopping_list)} items")
+
+            # If we still don't have a shopping list, return an empty list
+            if not shopping_list:
+                print("No shopping list found in response")
                 return []
+
+            # Standardize units in the shopping list
+            standardized_list = self._standardize_units(shopping_list)
+
+            return standardized_list
 
         except Exception as e:
             print(f"Error generating shopping list: {str(e)}")
             # Return an empty list instead of failing
             return []
+
+    def _standardize_units(self, shopping_list: List[Dict]) -> List[Dict]:
+        """Standardize units in the shopping list."""
+        unit_mapping = {
+            # Teaspoons
+            "tsp": "teaspoon",
+            "tsps": "teaspoons",
+            "tsp.": "teaspoon",
+            "tsps.": "teaspoons",
+            "teaspoon": "teaspoon",
+            "teaspoons": "teaspoons",
+            # Tablespoons
+            "tbsp": "tablespoon",
+            "tbsps": "tablespoons",
+            "tbsp.": "tablespoon",
+            "tbsps.": "tablespoons",
+            "tablespoon": "tablespoon",
+            "tablespoons": "tablespoons",
+            # Cups
+            "cup": "cup",
+            "cups": "cups",
+            "c.": "cup",
+            "c.": "cups",
+            # Grams
+            "g": "gram",
+            "gs": "grams",
+            "g.": "gram",
+            "gs.": "grams",
+            "gram": "gram",
+            "grams": "grams",
+            # Milliliters
+            "ml": "milliliter",
+            "mls": "milliliters",
+            "ml.": "milliliter",
+            "mls.": "milliliters",
+            "milliliter": "milliliter",
+            "milliliters": "milliliters",
+            # Whole items
+            "whole": "piece",
+            "wholes": "pieces",
+            "pc": "piece",
+            "pcs": "pieces",
+            "piece": "piece",
+            "pieces": "pieces",
+            # Other common units
+            "pinch": "pinch",
+            "pinches": "pinches",
+            "medium": "piece",
+            "large": "piece",
+            "small": "piece",
+        }
+
+        standardized_list = []
+        for item in shopping_list:
+            # Create a copy of the item to avoid modifying the original
+            standardized_item = item.copy()
+
+            # Standardize the unit if it exists in our mapping
+            if "unit" in standardized_item:
+                unit = standardized_item["unit"].lower()
+                if unit in unit_mapping:
+                    standardized_item["unit"] = unit_mapping[unit]
+
+            standardized_list.append(standardized_item)
+
+        return standardized_list
