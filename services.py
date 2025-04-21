@@ -28,27 +28,50 @@ class MealPlanService:
         excluded_ingredients: List[str],
     ) -> Dict:
         try:
+            print(
+                f"Starting meal plan generation with days_count={days_count}, meals={meals}, diet={diet}, excluded_ingredients={excluded_ingredients}"
+            )
+
             # Generate the meal plan using OpenAI
             meal_plan = self._generate_meal_plan_with_openai(
                 days_count, meals, diet, excluded_ingredients
             )
+            print(
+                f"Generated meal plan: {meal_plan[:200]}..."
+            )  # Print first 200 chars to avoid huge logs
 
             # Format the response as JSON
             formatted_response = self._format_response_as_json(meal_plan)
+            print(f"Formatted response keys: {list(formatted_response.keys())}")
 
             # Add proper dates to the meal plan
             self._add_dates_to_meal_plan(formatted_response)
+            print(
+                f"Added dates to meal plan. Days count: {len(formatted_response.get('days', []))}"
+            )
 
             # Generate shopping list
             shopping_list = self._generate_shopping_list(formatted_response)
+            print(f"Generated shopping list with {len(shopping_list)} items")
 
             # Add shopping list to the response
             formatted_response["shopping_list"] = shopping_list
+            print(f"Final response keys: {list(formatted_response.keys())}")
+            print(
+                f"Final response has shopping_list: {'shopping_list' in formatted_response}"
+            )
+            print(f"Shopping list type: {type(formatted_response['shopping_list'])}")
+            print(
+                f"Shopping list is list: {isinstance(formatted_response['shopping_list'], list)}"
+            )
 
             return formatted_response
         except Exception as e:
             # Log the error for debugging
             print(f"Error generating meal plan: {str(e)}")
+            import traceback
+
+            print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=500, detail=f"Failed to generate meal plan: {str(e)}"
             )
