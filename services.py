@@ -5,23 +5,19 @@ from typing import Dict, List, Any
 from dotenv import load_dotenv
 import openai
 import json_repair
-import httpx
+from fastapi import HTTPException
 
 load_dotenv()
 
 
 class MealPlanService:
     def __init__(self):
-        # Initialize the OpenAI client
+        # Initialize the OpenAI client with the newer API
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
-        # Create a basic httpx client without proxy settings
-        http_client = httpx.Client()
-
-        # Initialize the OpenAI client with the custom http client
-        self.client = openai.OpenAI(api_key=api_key, http_client=http_client)
+        self.client = openai.OpenAI(api_key=api_key)
         self.model = "gpt-4-turbo"  # Using gpt-4-turbo which supports response_format
 
     def generate_meal_plan(
@@ -31,24 +27,31 @@ class MealPlanService:
         diet: str,
         excluded_ingredients: List[str],
     ) -> Dict:
-        # Generate the meal plan using OpenAI
-        meal_plan = self._generate_meal_plan_with_openai(
-            days_count, meals, diet, excluded_ingredients
-        )
+        try:
+            # Generate the meal plan using OpenAI
+            meal_plan = self._generate_meal_plan_with_openai(
+                days_count, meals, diet, excluded_ingredients
+            )
 
-        # Format the response as JSON
-        formatted_response = self._format_response_as_json(meal_plan)
+            # Format the response as JSON
+            formatted_response = self._format_response_as_json(meal_plan)
 
-        # Add proper dates to the meal plan
-        self._add_dates_to_meal_plan(formatted_response)
+            # Add proper dates to the meal plan
+            self._add_dates_to_meal_plan(formatted_response)
 
-        # Generate shopping list
-        shopping_list = self._generate_shopping_list(formatted_response)
+            # Generate shopping list
+            shopping_list = self._generate_shopping_list(formatted_response)
 
-        # Add shopping list to the response
-        formatted_response["shopping_list"] = shopping_list
+            # Add shopping list to the response
+            formatted_response["shopping_list"] = shopping_list
 
-        return formatted_response
+            return formatted_response
+        except Exception as e:
+            # Log the error for debugging
+            print(f"Error generating meal plan: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to generate meal plan: {str(e)}"
+            )
 
     def _generate_meal_plan_with_openai(
         self,
@@ -64,7 +67,6 @@ class MealPlanService:
             "diet": diet,
             "excludedIngredients": excluded_ingredients,
         }
-        print("🚀 ~  _generate_meal_plan_with_openai // input_json:", input_json)
 
         # System message with format specifications
         system_message = """Respect strictly these formats :
@@ -118,53 +120,46 @@ Input JSON:
 
 For each day, provide ONLY ASKED MEALS and respect these rules:
 - Lunch and dinner should include three recipes each: a starter, a main course, and a dessert.
-- Collations are simpler, single-dish meals.
+- Breakfast should include one recipe.
+- Snacks should include one recipe.
+- All recipes must be suitable for the specified diet and must not include any of the excluded ingredients.
+- Each recipe should include a list of ingredients with quantities and units, and step-by-step instructions.
+- The meal plan should be varied and balanced, providing a good mix of nutrients.
+- All recipes should be practical and feasible for home cooking.
+- The meal plan should be returned in JSON format."""
 
-Each meal should:
-1. Avoid all ingredients listed in "excludedIngredients".
-2. Adhere to the "diet" restrictions.
-3. Ensure dishes are not repeated more than twice in the week.
-4. Be simple, tasty, and quick to prepare, suitable for one adult.
-5. One portion for one adult.
-
-Structure the output as follows:
-- For each day, provide details for each meal type available that day.
-- For each meal, include recipes with detailed steps and ingredients."""
-
-        # Use the OpenAI API with response_format
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.7,
-            response_format={"type": "json_object"},
-        )
-        return response.choices[0].message.content
-
-    def _format_response_as_json(self, meal_plan: str) -> Dict:
-        # Since we're using response_format=json_object, the response should already be valid JSON
         try:
-            parsed_json = json.loads(meal_plan)
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message},
+                ],
+                response_format={"type": "json_object"},
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"OpenAI API error in meal plan generation: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail="Failed to generate meal plan with OpenAI"
+            )
+
+    def _format_response_as_json(self, response: str) -> Dict:
+        try:
+            # Try to parse the response as JSON
+            return json.loads(response)
         except json.JSONDecodeError:
-            # If parsing fails, try to extract JSON from the response
-            json_str = self._extract_json_from_response(meal_plan)
             try:
-                parsed_json = json.loads(json_str)
-            except json.JSONDecodeError:
-                # If still not valid, try to repair it
-                try:
-                    repaired_json = json_repair.repair_json(json_str)
-                    parsed_json = json.loads(repaired_json)
-                except Exception:
-                    # If all else fails, use OpenAI to format it
-                    formatted_json = self._call_openai_for_json_formatting(json_str)
-                    parsed_json = json.loads(formatted_json)
+                # If that fails, try to repair the JSON
+                repaired_json = json_repair.loads(response)
+                return repaired_json
+            except Exception as e:
+                print(f"Error formatting response as JSON: {str(e)}")
+                raise HTTPException(
+                    status_code=500, detail="Failed to format response as JSON"
+                )
 
-        return parsed_json
-
-    def _add_dates_to_meal_plan(self, meal_plan: Dict) -> None:
+    def _add_dates_to_meal_plan(self, meal_plan: Dict) -> Dict:
         """Add proper dates to the meal plan starting from today."""
         today = datetime.now()
 
@@ -174,224 +169,58 @@ Structure the output as follows:
             # Format the date as YYYY-MM-DD
             day["date"] = current_date.strftime("%Y-%m-%d")
 
-    def _extract_json_from_response(self, response: str) -> str:
-        # Try to find JSON in the response
-        try:
-            # Look for JSON-like content between triple backticks
-            if "```json" in response:
-                json_content = response.split("```json")[1].split("```")[0].strip()
-                return json_content
-            elif "```" in response:
-                json_content = response.split("```")[1].split("```")[0].strip()
-                return json_content
-            else:
-                # If no backticks, try to find content between curly braces
-                start_idx = response.find("{")
-                end_idx = response.rfind("}") + 1
-                if start_idx >= 0 and end_idx > start_idx:
-                    return response[start_idx:end_idx]
-                else:
-                    return response
-        except Exception:
-            return response
-
-    def _call_openai_for_json_formatting(self, json_str: str) -> str:
-        prompt = self._create_json_format_prompt(json_str)
-
-        # Use the OpenAI API with response_format
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that formats data as valid JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-        )
-        return response.choices[0].message.content
-
-    def _create_json_format_prompt(self, json_str: str) -> str:
-        return f"""Format the following content as a valid JSON object with this structure:
-{{
-  "days": [
-    {{
-      "date": "YYYY-MM-DD",
-      "meals": [
-        {{
-          "meal_type": "breakfast/lunch/dinner",
-          "recipes": [
-            {{
-              "recipe_type": "starter/main/dessert",
-              "recipe": {{
-                "name": "Recipe Name",
-                "ingredients": [
-                  {{
-                    "label": "Ingredient Name",
-                    "quantity": 2,
-                    "unit": "unit"
-                  }}
-                ],
-                "steps": {{
-                  "1": "Step description",
-                  "2": "Step description"
-                }}
-              }}
-            }}
-          ]
-        }}
-      ]
-    }}
-  ],
-  "shopping_list": null
-}}
-
-Content to format:
-{json_str}
-
-Make sure the JSON is valid and follows the structure above. Do not include any explanations or text outside the JSON object."""
+        return meal_plan
 
     def _generate_shopping_list(self, meal_plan: Dict) -> List[Dict]:
-        """Generate a consolidated shopping list from all recipes in the meal plan."""
-        # System message with format specifications
-        print("🚀 ~ _generate_shopping_list // meal_plan:", meal_plan)
-        system_message = """Respect strictly these formats :
-
-A meals_plan is like:
-{
-    "days": Day[],
-    "shopping_list": null
-}
-
-A Day is like:
-{
-    "date": string,
-    "meals": Meal[]    
-]
-}
-
-A Meal is like:
-{
-    "meal_type": "breakfast" | "dinner" | "lunch | "snack",
-    "recipes": Recipe[]
-}
-
-A Recipe is like:
-{
-    "recipe_type": "collation" | "starter" | "main" | "dessert",
-    "recipe": RecipeItem,
-}
-
-A RecipeItem is like:
-{
-   "name": string,
-   "ingredients: Ingredient[],
-   "steps": { 1: string, 2: string, ...}
-}
-
-An Ingredient is like :
-{ 
-   "label": string,
-   "quantity": number,
-   "unit":string
-}"""
-
-        # User message with the prompt
-        user_message = f"""Given this meals plan:
-```json
-{json.dumps(meal_plan)}
-```
-
-Create a consolidated shopping list by:
-1. Combining similar ingredients
-2. Summing their quantities when units match
-3. Organizing by category (produce, dairy, etc.)
-
-Return ONLY the shopping list as an array of ingredients. Each ingredient is an object with a label:string, a quantity:number and a unit:string (mL, g, etc.). Order the ingredients by similarity (ex: all vegetables together).
-
-DO NOT return the entire meal plan, ONLY the shopping list array."""
-
-        # Use the OpenAI API with response_format
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-        )
-        shopping_list_json = response.choices[0].message.content
-
-        # Parse the JSON response
         try:
-            result = json.loads(shopping_list_json)
+            # Extract all ingredients from the meal plan
+            all_ingredients = []
+            for day in meal_plan.get("days", []):
+                for meal in day.get("meals", []):
+                    for recipe in meal.get("recipes", []):
+                        recipe_item = recipe.get("recipe", {})
+                        ingredients = recipe_item.get("ingredients", [])
+                        all_ingredients.extend(ingredients)
 
-            # Check if the result is a dictionary with a shopping_list key
+            # Create a prompt for OpenAI to clean and consolidate the shopping list
+            prompt = f"""You are a helpful assistant that creates clean shopping lists in JSON format.
+            Please consolidate the following ingredients into a clean shopping list.
+            Combine similar ingredients and sum their quantities.
+            Remove any preparation details and keep only the essential information.
+            Return the result as a JSON array of ingredients with label, quantity, and unit.
+            
+            Ingredients:
+            {json.dumps(all_ingredients)}
+            
+            Return ONLY the shopping list array, nothing else."""
+
+            # Call OpenAI to generate the shopping list
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that creates clean shopping lists in JSON format.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+
+            # Parse the response
+            result = json.loads(response.choices[0].message.content)
+
+            # Ensure we return a list
             if isinstance(result, dict) and "shopping_list" in result:
                 return result["shopping_list"]
-
-            # Check if the result is already a list (direct shopping list)
-            if isinstance(result, list):
+            elif isinstance(result, list):
                 return result
-
-            # If it's a dictionary but doesn't have a shopping_list key, try to find a list
-            if isinstance(result, dict):
-                for key, value in result.items():
-                    if isinstance(value, list):
-                        return value
-
-            # If we can't find a list, return an empty list
-            return []
-
-        except json.JSONDecodeError:
-            # If parsing fails, try to extract JSON from the response
-            extracted_json = self._extract_json_from_response(shopping_list_json)
-            try:
-                result = json.loads(extracted_json)
-
-                # Check if the result is a dictionary with a shopping_list key
-                if isinstance(result, dict) and "shopping_list" in result:
-                    return result["shopping_list"]
-
-                # Check if the result is already a list (direct shopping list)
-                if isinstance(result, list):
-                    return result
-
-                # If it's a dictionary but doesn't have a shopping_list key, try to find a list
-                if isinstance(result, dict):
-                    for key, value in result.items():
-                        if isinstance(value, list):
-                            return value
-
-                # If we can't find a list, return an empty list
+            else:
+                # If we can't find a list in the response, return an empty list
+                print(f"Unexpected shopping list format: {result}")
                 return []
 
-            except json.JSONDecodeError:
-                # If still not valid, try to repair it
-                try:
-                    repaired_json = json_repair.repair_json(extracted_json)
-                    result = json.loads(repaired_json)
-
-                    # Check if the result is a dictionary with a shopping_list key
-                    if isinstance(result, dict) and "shopping_list" in result:
-                        return result["shopping_list"]
-
-                    # Check if the result is already a list (direct shopping list)
-                    if isinstance(result, list):
-                        return result
-
-                    # If it's a dictionary but doesn't have a shopping_list key, try to find a list
-                    if isinstance(result, dict):
-                        for key, value in result.items():
-                            if isinstance(value, list):
-                                return value
-
-                    # If we can't find a list, return an empty list
-                    return []
-
-                except Exception:
-                    # If all else fails, return an empty list
-                    return []
+        except Exception as e:
+            print(f"Error generating shopping list: {str(e)}")
+            # Return an empty list instead of failing
+            return []
