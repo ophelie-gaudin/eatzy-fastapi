@@ -11,5 +11,15 @@
 	},
 	"scripts": {
 		"first-deploy": "pip install -r requirements.txt"
+	},
+	"buildpacks": [
+		{
+			"url": "https://github.com/Scalingo/python-buildpack.git"
+		}
+	],
+	"environments": {
+		"production": {
+			"python_version": "3.9.13"
+		}
 	}
 }
