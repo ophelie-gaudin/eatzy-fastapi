@@ -1,19 +1,20 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from models import MealPlanRequest, MealPlanResponse
+from models import MealPlanRequest, MealPlanResponse, Day, ShoppingListItem
 from services import MealPlanService
+import os
+from dotenv import load_dotenv
+from typing import List
 
 # Load environment variables
 load_dotenv()
 
+# Initialize FastAPI app
 app = FastAPI(
-    title="Eatzy Meal Planner API",
-    description="API for generating personalized meal plans",
-    version="1.0.0",
+    title="Eatzy API", description="API for generating meal plans and shopping lists"
 )
 
-# Configure CORS to allow requests from any origin during development
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
@@ -26,28 +27,21 @@ app.add_middleware(
 meal_plan_service = MealPlanService()
 
 
-@app.get("/")
-def health_check():
-    return {"status": "healthy"}
-
-
-@app.post("/generate-meal-plan")
+@app.post("/generate-meal-plan", response_model=MealPlanResponse)
 async def generate_meal_plan(request: MealPlanRequest):
+    """Generate a meal plan based on the request parameters."""
     try:
-        # Extract parameters from the request
-        days_count = request.daysCount
-        meals = request.meals
-        diet = request.diet
-        excluded_ingredients = request.excludedIngredients
-
         # Generate the meal plan
-        meal_plan = meal_plan_service.generate_meal_plan(
-            days_count=days_count,
-            meals=meals,
-            diet=diet,
-            excluded_ingredients=excluded_ingredients,
-        )
+        meal_plan = await meal_plan_service.generate_meal_plan(request)
 
-        return meal_plan
+        # Generate the shopping list
+        shopping_list = await meal_plan_service.generate_shopping_list(meal_plan)
+
+        return MealPlanResponse(days=meal_plan.days, shopping_list=shopping_list)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Meal Plan API"}
