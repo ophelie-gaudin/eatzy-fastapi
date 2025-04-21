@@ -173,6 +173,8 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
 
     def _generate_shopping_list(self, meal_plan: Dict) -> List[Dict]:
         try:
+            print("Starting shopping list generation...")
+
             # Extract all ingredients from the meal plan
             all_ingredients = []
             for day in meal_plan.get("days", []):
@@ -181,6 +183,12 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
                         recipe_item = recipe.get("recipe", {})
                         ingredients = recipe_item.get("ingredients", [])
                         all_ingredients.extend(ingredients)
+
+            print(f"Extracted {len(all_ingredients)} ingredients from meal plan")
+
+            if not all_ingredients:
+                print("No ingredients found in meal plan!")
+                return []
 
             # Create a prompt for OpenAI to clean and consolidate the shopping list
             prompt = f"""You are a helpful assistant that creates clean shopping lists in JSON format.
@@ -193,6 +201,8 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
             {json.dumps(all_ingredients)}
             
             Return ONLY the shopping list array, nothing else."""
+
+            print("Sending request to OpenAI for shopping list generation...")
 
             # Call OpenAI to generate the shopping list
             response = self.client.chat.completions.create(
@@ -207,13 +217,19 @@ For each day, provide ONLY ASKED MEALS and respect these rules:
                 response_format={"type": "json_object"},
             )
 
+            print("Received response from OpenAI")
+
             # Parse the response
             result = json.loads(response.choices[0].message.content)
+            print(f"Parsed response: {result}")
 
             # Ensure we return a list
             if isinstance(result, dict) and "shopping_list" in result:
-                return result["shopping_list"]
+                shopping_list = result["shopping_list"]
+                print(f"Found shopping_list key with {len(shopping_list)} items")
+                return shopping_list
             elif isinstance(result, list):
+                print(f"Response is already a list with {len(result)} items")
                 return result
             else:
                 # If we can't find a list in the response, return an empty list
