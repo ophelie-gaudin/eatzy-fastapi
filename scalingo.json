@@ -1,6 +1,5 @@
 {
 	"env": {
-		"PYTHON_VERSION": "3.9.13",
 		"PYTHONUNBUFFERED": "1"
 	},
 	"formation": {
@@ -16,10 +15,5 @@
 		{
 			"url": "https://github.com/Scalingo/python-buildpack.git"
 		}
-	],
-	"environments": {
-		"production": {
-			"python_version": "3.9.13"
-		}
-	}
+	]
 }
